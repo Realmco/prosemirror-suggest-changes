@@ -215,7 +215,7 @@ export function applySuggestionsToRange(doc, from, to) {
         const { deletion, insertion } = getSuggestionMarks(state.schema);
         const tr = state.tr;
         applySuggestionsToTransform(state.doc, tr, insertion, deletion, suggestionId, from, to);
-        applyModificationsToTransform(tr.doc, tr, 1, undefined, from, to);
+        applyModificationsToTransform(tr.doc, tr, 1, suggestionId, from, to);
         if (!tr.steps.length) return false;
         tr.setMeta(suggestChangesKey, {
             skip: true
@@ -271,11 +271,11 @@ export function applySuggestionsToRange(doc, from, to) {
         const { deletion, insertion } = getSuggestionMarks(state.schema);
         const tr = state.tr;
         applySuggestionsToTransform(state.doc, tr, deletion, insertion, suggestionId, from, to);
+        applyModificationsToTransform(tr.doc, tr, -1, suggestionId, from, to);
         if (!tr.steps.length) return false;
         tr.setMeta(suggestChangesKey, {
             skip: true
         });
-        applyModificationsToTransform(tr.doc, tr, -1, undefined, from, to);
         dispatch?.(tr);
         return true;
     };

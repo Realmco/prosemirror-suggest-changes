@@ -372,7 +372,7 @@ export function applySuggestion(
       from,
       to,
     );
-    applyModificationsToTransform(tr.doc, tr, 1, undefined, from, to);
+    applyModificationsToTransform(tr.doc, tr, 1, suggestionId, from, to);
     if (!tr.steps.length) return false;
     tr.setMeta(suggestChangesKey, { skip: true });
     dispatch?.(tr);
@@ -452,9 +452,9 @@ export function revertSuggestion(
       from,
       to,
     );
+    applyModificationsToTransform(tr.doc, tr, -1, suggestionId, from, to);
     if (!tr.steps.length) return false;
     tr.setMeta(suggestChangesKey, { skip: true });
-    applyModificationsToTransform(tr.doc, tr, -1, undefined, from, to);
     dispatch?.(tr);
     return true;
   };

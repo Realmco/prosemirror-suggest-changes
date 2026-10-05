@@ -455,3 +455,74 @@ describe("revertTrackedChange", () => {
     );
   });
 });
+
+/**
+ * Deciding one suggestion must touch one suggestion, and must work when the only thing suggested
+ * was a change of formatting.
+ *
+ * Both of these bit a real editor. A reader who may only suggest, taking back their own edit, had
+ * every other suggestion's modification marks stripped out of the body along with their own —
+ * which the server refused as somebody else's to withdraw, and the editor went read-only for the
+ * rest of the session. And a suggestion that only changed a heading's level could not be taken
+ * back or rejected at all: the command looked for steps before it had made any.
+ */
+describe("deciding one suggestion among several", () => {
+  const twoModifications = () =>
+    testBuilders.doc(
+      testBuilders.modification(
+        { id: 1, type: "attr", attrName: "level", previousValue: 1, newValue: 2 },
+        testBuilders.heading({ level: 2 }, "mine"),
+      ),
+      testBuilders.modification(
+        { id: 2, type: "attr", attrName: "level", previousValue: 1, newValue: 3 },
+        testBuilders.heading({ level: 3 }, "theirs"),
+      ),
+    );
+
+  it("reverts a modification-only suggestion at all", async () => {
+    const editorState = EditorState.create({ doc: twoModifications() });
+
+    const dispatched = await new Promise<boolean>((resolve) => {
+      const ran = revertSuggestion(1)(editorState, () => resolve(true));
+      if (!ran) resolve(false);
+    });
+
+    assert(dispatched, "revertSuggestion made no steps for a suggestion that is only a modification");
+  });
+
+  it("leaves the other suggestion's marks where they were", async () => {
+    const editorState = EditorState.create({ doc: twoModifications() });
+
+    const newState = await new Promise<EditorState>((resolve) => {
+      revertSuggestion(1)(editorState, (tr) => resolve(editorState.apply(tr)));
+    });
+
+    const expected = testBuilders.doc(
+      testBuilders.heading({ level: 1 }, "mine"),
+      testBuilders.modification(
+        { id: 2, type: "attr", attrName: "level", previousValue: 1, newValue: 3 },
+        testBuilders.heading({ level: 3 }, "theirs"),
+      ),
+    );
+
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+
+  it("applies one without flattening the other", async () => {
+    const editorState = EditorState.create({ doc: twoModifications() });
+
+    const newState = await new Promise<EditorState>((resolve) => {
+      applySuggestion(1)(editorState, (tr) => resolve(editorState.apply(tr)));
+    });
+
+    const expected = testBuilders.doc(
+      testBuilders.heading({ level: 2 }, "mine"),
+      testBuilders.modification(
+        { id: 2, type: "attr", attrName: "level", previousValue: 1, newValue: 3 },
+        testBuilders.heading({ level: 3 }, "theirs"),
+      ),
+    );
+
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+});
