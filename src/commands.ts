@@ -2,9 +2,10 @@ import { type Mark, type MarkType, type Node } from "prosemirror-model";
 import {
   type Command,
   type EditorState,
+  Selection,
   TextSelection,
 } from "prosemirror-state";
-import { Transform } from "prosemirror-transform";
+import { Transform, canJoin } from "prosemirror-transform";
 import { type EditorView } from "prosemirror-view";
 
 import { findSuggestionMarkEnd } from "./findSuggestionMarkEnd.js";
@@ -112,6 +113,12 @@ function applySuggestionsToTransform(
     const boundarySuggestion = blockBoundarySuggestion.isInSet(child.marks);
 
     if (!boundarySuggestion) return true;
+    // Deciding one suggestion leaves every other boundary as it was.
+    if (
+      suggestionId !== undefined &&
+      boundarySuggestion.attrs["id"] !== suggestionId
+    )
+      return true;
 
     const joinPoint = tr.mapping.invert().map(pos + child.nodeSize);
     pos = tr.mapping.invert().map(pos);
@@ -124,7 +131,7 @@ function applySuggestionsToTransform(
     tr.removeNodeMark(tr.mapping.map(pos), boundarySuggestion);
 
     if (boundarySuggestion.attrs["type"] === markTypeToRevert.name) {
-      tr.join(tr.mapping.map(joinPoint));
+      joinAt(tr, tr.mapping.map(joinPoint));
       const mappedJoinPoint = tr.mapping.map(joinPoint);
       // check if the previous and the next text part is a space
       // if so, we can delete the whole text part
@@ -147,6 +154,30 @@ function applySuggestionsToTransform(
 
     return true;
   });
+}
+
+/**
+ * Joins the blocks either side of a boundary. Blocks at different depths (a
+ * paragraph and the list after it) have no single join, so the textblocks
+ * either side are merged and the rest of the structure kept, as Backspace
+ * would. Anything else between them (an image, an empty block) stays.
+ */
+function joinAt(tr: Transform, pos: number) {
+  if (canJoin(tr.doc, pos)) {
+    tr.join(pos);
+    return;
+  }
+  const $pos = tr.doc.resolve(pos);
+  const before = Selection.findFrom($pos, -1, true);
+  const after = Selection.findFrom($pos, 1, true);
+  if (!before || !after || before.from >= after.from) return;
+  let between = false;
+  tr.doc.nodesBetween(before.from, after.from, (node, nodePos) => {
+    if (nodePos >= before.from && nodePos + node.nodeSize <= after.from)
+      between = true;
+    return !between;
+  });
+  if (!between) tr.delete(before.from, after.from);
 }
 
 function revertModifications(node: Node, pos: number, tr: Transform) {

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 
 import { Schema } from "prosemirror-model";
-import { EditorState } from "prosemirror-state";
+import { EditorState, type Transaction } from "prosemirror-state";
 import { builders, eq } from "prosemirror-test-builder";
 import { assert, describe, it } from "vitest";
 
@@ -523,6 +523,116 @@ describe("deciding one suggestion among several", () => {
       ),
     );
 
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+});
+
+/**
+ * A paragraph break proposed to go, between blocks that sit at different depths: a paragraph and
+ * the bullet under it, or a bullet and the paragraph after its list. There is no single join for
+ * those, and accepting one threw. And deciding any one suggestion joined every proposed break in
+ * the document, not just its own.
+ */
+describe("deciding a deleted paragraph break", () => {
+  const { doc, paragraph, bulletList, listItem, blockBoundarySuggestion } =
+    testBuilders;
+
+  const decide = (
+    state: EditorState,
+    command: (id: number) => (
+      state: EditorState,
+      dispatch: (tr: Transaction) => void,
+    ) => boolean,
+    id: number,
+  ) =>
+    new Promise<EditorState>((resolve) => {
+      command(id)(state, (tr) => resolve(state.apply(tr)));
+    });
+
+  it("merges the first bullet into the paragraph above it", async () => {
+    const state = EditorState.create({
+      doc: doc(
+        blockBoundarySuggestion(
+          { id: 1, type: "deletion" },
+          paragraph("Objectives:"),
+        ),
+        bulletList(
+          listItem(paragraph("Create a home.")),
+          listItem(paragraph("Preserve the garage.")),
+        ),
+      ),
+    });
+
+    const newState = await decide(state, applySuggestion, 1);
+
+    const expected = doc(
+      paragraph("Objectives:Create a home."),
+      bulletList(listItem(paragraph("Preserve the garage."))),
+    );
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+
+  it("merges a paragraph into the last bullet above it", async () => {
+    const state = EditorState.create({
+      doc: doc(
+        bulletList(
+          listItem(paragraph("First.")),
+          listItem(
+            blockBoundarySuggestion(
+              { id: 1, type: "deletion" },
+              paragraph("Last."),
+            ),
+          ),
+        ),
+        paragraph("After."),
+      ),
+    });
+
+    const newState = await decide(state, applySuggestion, 1);
+
+    const expected = doc(
+      bulletList(
+        listItem(paragraph("First.")),
+        listItem(paragraph("Last.After.")),
+      ),
+    );
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+
+  it("rejecting it only drops the mark", async () => {
+    const state = EditorState.create({
+      doc: doc(
+        blockBoundarySuggestion(
+          { id: 1, type: "deletion" },
+          paragraph("Objectives:"),
+        ),
+        bulletList(listItem(paragraph("Create a home."))),
+      ),
+    });
+
+    const newState = await decide(state, revertSuggestion, 1);
+
+    const expected = doc(
+      paragraph("Objectives:"),
+      bulletList(listItem(paragraph("Create a home."))),
+    );
+    assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
+  });
+
+  it("deciding another suggestion leaves the break alone", async () => {
+    const state = EditorState.create({
+      doc: doc(
+        blockBoundarySuggestion({ id: 1, type: "deletion" }, paragraph("One.")),
+        paragraph("Two.", testBuilders.insertion({ id: 2 }, " More.")),
+      ),
+    });
+
+    const newState = await decide(state, applySuggestion, 2);
+
+    const expected = doc(
+      blockBoundarySuggestion({ id: 1, type: "deletion" }, paragraph("One.")),
+      paragraph("Two. More."),
+    );
     assert(eq(newState.doc, expected), `Expected ${newState.doc} to match ${expected}`);
   });
 });
